@@ -227,3 +227,30 @@ class FileCopier(object):
                 shutil.copy2(abs_src_name, abs_dst_name)
             copied_files.append(abs_dst_name)
         return copied_files
+
+class FileMover(FileCopier):
+    @staticmethod
+    def _copy_files(files, src, dst, keep_path, symlinks):
+        """ executes a multiple file copy from [(src_file, dst_file), (..)]
+        managing symlinks if necessary
+        """
+        copied_files = []
+        for filename in files:
+            abs_src_name = os.path.join(src, filename)
+            filename = filename if keep_path else os.path.basename(filename)
+            abs_dst_name = os.path.normpath(os.path.join(dst, filename))
+            try:
+                os.makedirs(os.path.dirname(abs_dst_name))
+            except Exception:
+                pass
+            if symlinks and os.path.islink(abs_src_name):
+                linkto = os.readlink(abs_src_name)  # @UndefinedVariable
+                try:
+                    os.remove(abs_dst_name)
+                except OSError:
+                    pass
+                os.symlink(linkto, abs_dst_name)  # @UndefinedVariable
+            else:
+                shutil.move(abs_src_name, abs_dst_name)
+            copied_files.append(abs_dst_name)
+        return copied_files

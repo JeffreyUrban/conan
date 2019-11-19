@@ -1,7 +1,7 @@
 import os
 import shutil
 
-from conans.client.file_copier import FileCopier, report_copied_files
+from conans.client.file_copier import FileCopier, FileMover, report_copied_files
 from conans.client.output import ScopedOutput
 from conans.client.tools.files import chdir
 from conans.errors import (ConanException, ConanExceptionInUserConanfileMethod,
@@ -24,6 +24,9 @@ def export_pkg(conanfile, package_id, src_package_folder, package_folder, hook_m
 
     copier = FileCopier([src_package_folder], package_folder)
     copier("*", symlinks=True)
+
+    mover = FileMover([src_package_folder], package_folder)
+    mover("*", symlinks=True)
 
     conanfile.package_folder = package_folder
     hook_manager.execute("post_package", conanfile=conanfile, conanfile_path=conanfile_path,
@@ -69,6 +72,7 @@ def run_package_method(conanfile, package_id, source_folder, build_folder, packa
 
         folders = [source_folder, build_folder] if source_folder != build_folder else [build_folder]
         conanfile.copy = FileCopier(folders, package_folder)
+        conanfile.move = FileMover(folders, package_folder)
         with conanfile_exception_formatter(str(conanfile), "package"):
             with chdir(build_folder):
                 conanfile.package()
