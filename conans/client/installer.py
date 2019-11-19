@@ -80,7 +80,7 @@ class _PackageBuilder(object):
         return build_folder, skip_build
 
     def _prepare_sources(self, conanfile, pref, package_layout, conanfile_path, source_folder,
-                         build_folder, remotes):
+                         build_folder, remotes, keep_source):
         export_folder = package_layout.export()
         export_source_folder = package_layout.export_sources()
         scm_sources_folder = package_layout.scm_sources()
@@ -95,7 +95,11 @@ class _PackageBuilder(object):
         if not getattr(conanfile, 'no_copy_source', False):
             self._output.info('Copying sources to build folder')
             try:
-                shutil.copytree(source_folder, build_folder, symlinks=True)
+                # TODO:
+                if keep_source:
+                    shutil.copytree(source_folder, build_folder, symlinks=True)
+                else:
+                    shutil.move(source_folder, build_folder)
             except Exception as e:
                 msg = str(e)
                 if "206" in msg:  # System error shutil.Error 206: Filename or extension too long
@@ -167,7 +171,7 @@ class _PackageBuilder(object):
         # FIXME: Conan 2.0 Clear the registry entry (package ref)
         return prev
 
-    def build_package(self, node, keep_build, recorder, remotes):
+    def build_package(self, node, keep_build, keep_source, recorder, remotes):
         t1 = time.time()
 
         conanfile = node.conanfile
@@ -185,7 +189,7 @@ class _PackageBuilder(object):
             with package_layout.conanfile_write_lock(self._output):
                 set_dirty(build_folder)
                 self._prepare_sources(conanfile, pref, package_layout, conanfile_path, source_folder,
-                                      build_folder, remotes)
+                                      build_folder, remotes, keep_source)
 
         # BUILD & PACKAGE
         with package_layout.conanfile_read_lock(self._output):
@@ -299,15 +303,15 @@ class BinaryInstaller(object):
         self._binaries_analyzer = app.binaries_analyzer
         self._hook_manager = app.hook_manager
 
-    def install(self, deps_graph, remotes, build_mode, update, keep_build=False, graph_info=None):
+    def install(self, deps_graph, remotes, build_mode, update, keep_build=False, keep_source=True, graph_info=None):
         # order by levels and separate the root node (ref=None) from the rest
         nodes_by_level = deps_graph.by_levels()
         root_level = nodes_by_level.pop()
         root_node = root_level[0]
         # Get the nodes in order and if we have to build them
-        self._build(nodes_by_level, keep_build, root_node, graph_info, remotes, build_mode, update)
+        self._build(nodes_by_level, keep_build, keep_source, root_node, graph_info, remotes, build_mode, update)
 
-    def _build(self, nodes_by_level, keep_build, root_node, graph_info, remotes, build_mode, update):
+    def _build(self, nodes_by_level, keep_build, keep_source, root_node, graph_info, remotes, build_mode, update):
         processed_package_refs = set()
         for level in nodes_by_level:
             for node in level:
@@ -329,7 +333,7 @@ class BinaryInstaller(object):
                     _handle_system_requirements(conan_file, node.pref, self._cache, output)
                     if node.binary == BINARY_UNKNOWN:
                         self._binaries_analyzer.reevaluate_node(node, remotes, build_mode, update)
-                    self._handle_node_cache(node, keep_build, processed_package_refs, remotes)
+                    self._handle_node_cache(node, keep_build, keep_source, processed_package_refs, remotes)
 
         # Finally, propagate information to root node (ref=None)
         self._propagate_info(root_node)
@@ -379,7 +383,7 @@ class BinaryInstaller(object):
                 copied_files = run_imports(node.conanfile, build_folder)
                 report_copied_files(copied_files, output)
 
-    def _handle_node_cache(self, node, keep_build, processed_package_references, remotes):
+    def _handle_node_cache(self, node, keep_build, keep_source, processed_package_references, remotes):
         pref = node.pref
         assert pref.id, "Package-ID without value"
         assert pref.id != PACKAGE_ID_UNKNOWN, "Package-ID error: %s" % str(pref)
@@ -395,7 +399,7 @@ class BinaryInstaller(object):
                 if node.binary == BINARY_BUILD:
                     assert node.prev is None, "PREV for %s to be built should be None" % str(pref)
                     with set_dirty_context_manager(package_folder):
-                        pref = self._build_package(node, output, keep_build, remotes)
+                        pref = self._build_package(node, output, keep_build, keep_source, remotes)
                     assert node.prev, "Node PREV shouldn't be empty"
                     assert node.pref.revision, "Node PREF revision shouldn't be empty"
                     assert pref.revision is not None, "PREV for %s to be built is None" % str(pref)
@@ -426,7 +430,7 @@ class BinaryInstaller(object):
             self._call_package_info(conanfile, package_folder, ref=pref.ref)
             self._recorder.package_cpp_info(pref, conanfile.cpp_info)
 
-    def _build_package(self, node, output, keep_build, remotes):
+    def _build_package(self, node, output, keep_build, keep_source, remotes):
         conanfile = node.conanfile
         # It is necessary to complete the sources of python requires, which might be used
         for python_require in conanfile.python_requires.values():
@@ -436,7 +440,7 @@ class BinaryInstaller(object):
                                     python_require.conanfile, python_require.ref, remotes)
 
         builder = _PackageBuilder(self._cache, output, self._hook_manager, self._remote_manager)
-        pref = builder.build_package(node, keep_build, self._recorder, remotes)
+        pref = builder.build_package(node, keep_build, keep_source, self._recorder, remotes)
         if node.graph_lock_node:
             node.graph_lock_node.modified = BINARY_BUILD
         return pref

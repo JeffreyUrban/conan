@@ -356,7 +356,7 @@ class ConanAPIV1(object):
             graph_info.root = ConanFileReference(None, None, None, None, validate=False)
             recorder.add_recipe_being_developed(ref)
             create(self.app, ref, graph_info, remotes, update, build_modes,
-                   manifest_folder, manifest_verify, manifest_interactive, keep_build,
+                   manifest_folder, manifest_verify, manifest_interactive, keep_build, keep_source,
                    test_build_folder, test_folder, conanfile_path, recorder=recorder)
 
             if lockfile:
